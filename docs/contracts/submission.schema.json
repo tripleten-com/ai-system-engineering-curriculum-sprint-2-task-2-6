@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Coldline Task 2.6 public answer contract. The single answer is the revision identifier Alembic generated for the migration in this repository. The automated checks then verify that exactly one authored revision carries that identifier, that the database is stamped at it after `alembic upgrade head`, that the forward schema and its data effect are correct, that the application still answers, and that a rollback reverses the schema without losing rows.",
+  "title": "Coldline Task 2.6 answers",
+  "description": "The generated migration revision identifier, copied from runtime evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "answers"
+  ],
+  "properties": {
+    "answers": {
+      "description": "The only top-level answer mapping accepted by the public verifier.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "migration_revision_id"
+      ],
+      "properties": {
+        "migration_revision_id": {
+          "description": "The revision identifier Alembic generated for your migration. Read it from the generated file name, from the `revision` line inside it, or from `poe migrate-current` after applying it. The supplied baseline revision 0001baseline is not an accepted answer.",
+          "type": "string",
+          "pattern": "^[0-9a-zA-Z_]{4,64}$",
+          "not": {
+            "const": "0001baseline"
+          }
+        }
+      }
+    }
+  }
+}
