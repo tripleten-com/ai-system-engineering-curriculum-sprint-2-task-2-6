@@ -22,6 +22,7 @@ from domain.idempotency import (
 )
 
 _TRACER = trace.get_tracer(__name__)
+_CLAIM_ATTEMPTS = 3
 
 
 class PostgresIdempotencyStore:
@@ -31,12 +32,13 @@ class PostgresIdempotencyStore:
     supplied and protected: Task 2.5 asks a student to *apply* it, not to
     build a distributed locking system.
 
-    The claim is one statement. ``INSERT ... ON CONFLICT DO NOTHING
+    Each claim attempt is one statement. ``INSERT ... ON CONFLICT DO NOTHING
     RETURNING`` either inserts the row and returns it, in which case this
     caller owns the key, or returns nothing, in which case somebody else got
     there first and the existing row says what to do next. Two concurrent
     duplicates therefore cannot both believe they own the key, and no
-    read-then-write race exists to lose.
+    read-then-write race exists to lose. If a concurrent release removes the
+    row before the lookup, retry the atomic insertion before reporting ownership.
     """
 
     def __init__(self, pool: asyncpg.Pool) -> None:
@@ -48,54 +50,57 @@ class PostgresIdempotencyStore:
         with _TRACER.start_as_current_span(
             "idempotency.claim", attributes={"coldline.operation_id": operation_id}
         ):
-            inserted = await self._pool.fetchrow(
-                """
-                INSERT INTO idempotency_claims (idempotency_key, operation_id)
-                VALUES ($1, $2)
-                ON CONFLICT (idempotency_key) DO NOTHING
-                RETURNING idempotency_key, operation_id, claimed_at
-                """,
-                key,
-                operation_id,
-            )
-            if inserted is not None:
+            for _ in range(_CLAIM_ATTEMPTS):
+                inserted = await self._pool.fetchrow(
+                    """
+                    INSERT INTO idempotency_claims (idempotency_key, operation_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT (idempotency_key) DO NOTHING
+                    RETURNING idempotency_key, operation_id, claimed_at
+                    """,
+                    key,
+                    operation_id,
+                )
+                if inserted is not None:
+                    return IdempotencyClaim(
+                        key=key,
+                        operation_id=operation_id,
+                        state=ClaimState.CLAIMED,
+                        claimed_at=inserted["claimed_at"],
+                    )
+
+                existing = await self._pool.fetchrow(
+                    "SELECT * FROM idempotency_claims WHERE idempotency_key = $1", key
+                )
+                if existing is None:
+                    # A concurrent release won the race with this lookup. Only
+                    # a successful insertion can grant this caller ownership.
+                    continue
+                if existing["operation_id"] != operation_id:
+                    raise IdempotencyConflict(
+                        "idempotency key is already in use by operation "
+                        f"{existing['operation_id']!r}"
+                    )
+                if existing["completed_at"] is None:
+                    return IdempotencyClaim(
+                        key=key,
+                        operation_id=operation_id,
+                        state=ClaimState.IN_FLIGHT,
+                        claimed_at=existing["claimed_at"],
+                    )
                 return IdempotencyClaim(
                     key=key,
                     operation_id=operation_id,
-                    state=ClaimState.CLAIMED,
-                    claimed_at=inserted["claimed_at"],
+                    state=ClaimState.COMPLETED,
+                    claimed_at=existing["claimed_at"],
+                    response=StoredResponse(
+                        status_code=existing["response_status"],
+                        body=existing["response_body"],
+                    ),
                 )
 
-            existing = await self._pool.fetchrow(
-                "SELECT * FROM idempotency_claims WHERE idempotency_key = $1", key
-            )
-            if existing is None:
-                # The row vanished between the insert and this read, which means
-                # a concurrent release. Retrying is the caller's decision, so
-                # report the key as free rather than inventing a state.
-                return IdempotencyClaim(
-                    key=key, operation_id=operation_id, state=ClaimState.CLAIMED
-                )
-            if existing["operation_id"] != operation_id:
-                raise IdempotencyConflict(
-                    f"idempotency key is already in use by operation {existing['operation_id']!r}"
-                )
-            if existing["completed_at"] is None:
-                return IdempotencyClaim(
-                    key=key,
-                    operation_id=operation_id,
-                    state=ClaimState.IN_FLIGHT,
-                    claimed_at=existing["claimed_at"],
-                )
-            return IdempotencyClaim(
-                key=key,
-                operation_id=operation_id,
-                state=ClaimState.COMPLETED,
-                claimed_at=existing["claimed_at"],
-                response=StoredResponse(
-                    status_code=existing["response_status"],
-                    body=existing["response_body"],
-                ),
+            raise IdempotencyConflict(
+                "idempotency key changed during concurrent claims; retry the request"
             )
 
     async def complete(self, key: str, operation_id: str, response: StoredResponse) -> None:
