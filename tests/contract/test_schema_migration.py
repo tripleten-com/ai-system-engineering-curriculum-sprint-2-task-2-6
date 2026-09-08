@@ -11,6 +11,7 @@ Concepts:          Reversible migrations, data preservation, database-state veri
 Tools:             Python 3.12, pytest, Docker Compose, httpx
 """
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -97,9 +98,51 @@ def _alembic(*arguments: str) -> subprocess.CompletedProcess[str]:
 
 
 def _upgrade_to_head() -> None:
-    """Apply every migration, failing with Alembic's own output when it cannot."""
-    result = _alembic("upgrade", "head")
+    """Apply every migration and verify that existing field values survive."""
+    _migrate_preserving_data("upgrade", "head")
+
+
+def _data_snapshot() -> dict[str, list[dict[str, object]]]:
+    """Read both tables in one database snapshot, excluding only the added column."""
+    snapshot = json.loads(
+        _psql(
+            "SELECT jsonb_build_object("
+            "'documents', (SELECT coalesce(jsonb_agg(to_jsonb(d) ORDER BY d.document_id), "
+            "'[]'::jsonb) FROM documents AS d), "
+            "'chunks', (SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY c.chunk_id), "
+            "'[]'::jsonb) FROM chunks AS c))"
+        )
+    )
+    # Compare PostgreSQL's JSON values, including nested metadata, rather than
+    # row counts or serialized JSON text. The required new column is the sole
+    # permitted difference between the baseline and migrated data.
+    for row in snapshot["documents"]:
+        row.pop(REQUIRED_COLUMN, None)
+    for table, identifier in (("documents", "document_id"), ("chunks", "chunk_id")):
+        snapshot[table].sort(key=lambda row: row[identifier])
+    return snapshot
+
+
+def _assert_data_preserved(
+    before: dict[str, list[dict[str, object]]],
+    after: dict[str, list[dict[str, object]]],
+    operation: str,
+) -> None:
+    """Reject deleted, added, or modified rows without dumping their contents."""
+    for table in ("documents", "chunks"):
+        unchanged = before[table] == after[table]
+        assert unchanged, (
+            f"{operation} changed stored {table} values; every existing field must survive "
+            f"except documents.{REQUIRED_COLUMN}"
+        )
+
+
+def _migrate_preserving_data(*arguments: str) -> None:
+    """Check stored values around each individual upgrade or downgrade."""
+    before = _data_snapshot()
+    result = _alembic(*arguments)
     assert result.returncode == 0, result.stdout + result.stderr
+    _assert_data_preserved(before, _data_snapshot(), " ".join(arguments))
 
 
 def recorded_revision() -> str:
@@ -280,11 +323,10 @@ def test_rollback_reverses_the_schema_and_preserves_the_data() -> None:
     """Downgrade must remove exactly what upgrade added and touch no row."""
     recorded = recorded_revision()
     _upgrade_to_head()
-    before = _corpus_counts()
-    assert before[0] != "0", "the ingested corpus is missing; run `poe ingest`"
+    before = _data_snapshot()
+    assert _corpus_counts()[0] != "0", "the ingested corpus is missing; run `poe ingest`"
 
-    result = _alembic("downgrade", "-1")
-    assert result.returncode == 0, result.stdout + result.stderr
+    _migrate_preserving_data("downgrade", "-1")
 
     assert _column_facts() == {}, (
         f"{REQUIRED_TABLE}.{REQUIRED_COLUMN} still exists after the rollback"
@@ -294,27 +336,23 @@ def test_rollback_reverses_the_schema_and_preserves_the_data() -> None:
         f"the database is stamped at {stamped!r} after the rollback, not at the supplied "
         f"baseline {BASELINE_REVISION!r}"
     )
-    after = _corpus_counts()
-    assert after == before, (
-        f"the rollback changed the data: {before} documents and chunks became {after}. A "
-        "rollback that recreates a table instead of reversing the change loses rows."
-    )
+    _assert_data_preserved(before, _data_snapshot(), "rollback")
 
     # Leave the database where the remaining checks expect to find it.
-    assert _alembic("upgrade", recorded).returncode == 0
+    _migrate_preserving_data("upgrade", recorded)
 
 
 def test_the_forward_rollback_forward_cycle_is_repeatable() -> None:
     """A migration usable in a deployment pipeline survives being run more than once."""
     recorded = recorded_revision()
     _upgrade_to_head()
-    before = _corpus_counts()
+    before = _data_snapshot()
 
     for cycle in range(2):
-        assert _alembic("downgrade", "-1").returncode == 0, f"cycle {cycle}: downgrade failed"
+        _migrate_preserving_data("downgrade", "-1")
         assert _column_facts() == {}, f"cycle {cycle}: the column survived the rollback"
-        assert _alembic("upgrade", "head").returncode == 0, f"cycle {cycle}: re-upgrade failed"
+        _upgrade_to_head()
         assert _column_facts(), f"cycle {cycle}: the column did not come back"
 
     assert _current_revision() == recorded
-    assert _corpus_counts() == before, "the corpus changed across the migration cycles"
+    _assert_data_preserved(before, _data_snapshot(), "migration cycles")

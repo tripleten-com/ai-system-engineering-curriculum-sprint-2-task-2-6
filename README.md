@@ -238,6 +238,14 @@ one extra query, so ordinary requests leave it off.
 Contract checks marked `runtime` need the running stack. `poe contract` skips them; `poe verify`
 and `poe runtime-contract` run them.
 
+## Submission checks
+
+Run `poe verify` locally before opening your student pull request. Public GitHub CI repeats
+the student checks. The course platform (CMS) runs the required protected grading separately
+and associates its results with your submission commit. A green template-export check, or a
+skipped student check on an `export/` branch, is not a passing grade. You do not configure
+GitHub grading secrets. Follow the Task lesson's instructor-review and progression policy.
+
 ## Task boundary
 
 Task 2.6 asks you to write **one reversible migration** that adds a `retention_class` column to the
@@ -276,8 +284,8 @@ request.
 
 ## Operational limits
 
-This local system has no user authentication, authorization, TLS termination, or production secret
-store. A retrieval request states its own tenancy and clearance, so that context is an asserted
+This local system does not authenticate users, terminate TLS, or manage production secrets.
+A retrieval request states its own tenancy and clearance, so that context is an asserted
 identity rather than a verified one. The Compose PostgreSQL password and the LocalStack access keys
 are local-only non-secret credentials. Never place real credentials, personal data, or production
 records in this repository, including in `infra/corpus/`.

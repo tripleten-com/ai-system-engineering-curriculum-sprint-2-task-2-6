@@ -79,16 +79,18 @@ require both to be the one you recorded.
 | Check | What it looks at |
 |---|---|
 | `test_exactly_one_reversible_migration_is_authored` | `migrations/versions/`: one authored revision, matching the recorded identifier, chained to the baseline, with statements in both directions |
-| `test_forward_migration_creates_the_required_column` | `information_schema.columns` after `upgrade head`, and `alembic_version` |
+| `test_forward_migration_creates_the_required_column` | `information_schema.columns` after `upgrade head`, `alembic_version`, and preservation of existing document and chunk values |
 | `test_the_permitted_values_are_enforced_by_the_database` | What PostgreSQL accepts and refuses for `retention_class` |
 | `test_pre_existing_rows_receive_the_default` | Every corpus row already in `documents` carries `'standard'` |
 | `test_the_application_still_works_against_the_migrated_schema` | The document API and the retrieval API, over HTTP |
-| `test_rollback_reverses_the_schema_and_preserves_the_data` | The column is gone, the stamp is back at the baseline, and the document and chunk counts are unchanged |
-| `test_the_forward_rollback_forward_cycle_is_repeatable` | Two full down-and-up cycles leave the same schema and the same rows |
+| `test_rollback_reverses_the_schema_and_preserves_the_data` | The column is gone, the stamp is back at the baseline, and all other document and chunk values are unchanged |
+| `test_the_forward_rollback_forward_cycle_is_repeatable` | Each step of two full down-and-up cycles preserves the existing data and restores the expected schema |
 
 The last two are the reason `downgrade()` cannot be left empty and cannot be written as "drop the
-table and recreate it". Dropping `documents` takes its rows and its chunks with it, and the counts
-are compared across the rollback precisely to catch that.
+table and recreate it". Every upgrade and downgrade compares snapshots of all stored document
+and chunk fields, excluding only `documents.retention_class`, which this migration adds and removes.
+Changing a title, access label, provenance value, chunk text, or embedding fails even if row counts
+stay the same. Each direction is checked separately, so a later step cannot hide an earlier change.
 
 ## Student-editable paths
 
