@@ -20,7 +20,7 @@ each earlier substitution a visible one-line change.
 - Task 2.3's data layer: `build_document_repository` returns the reference
   repository.
 - Task 2.4's authorization mechanism: `build_access_constraints` returns the
-  reference tenant-boundary policy.
+  reference combined tenancy-and-classification policy.
 - Task 2.5's versioned write: `build_v2_router` returns the reference version 2
   document router.
 
@@ -32,6 +32,7 @@ import asyncpg
 from fastapi import APIRouter
 
 from adapters.persistence.document_repository import PostgresDocumentRepository
+from api.access_policy import ComposedAccessConstraints
 from api.document_service import DocumentService
 from api.extensions.api_v2 import build_documents_v2_router
 from api.retrieval_orchestration import RetrievalOrchestrationService
@@ -71,7 +72,9 @@ def build_access_constraints() -> AccessConstraintProvider:
     The adapter applies this inside both query arms, so the constraint decides
     what is *fetched* rather than what is discarded afterwards.
     """
-    return TenantBoundaryAccessConstraints()
+    return ComposedAccessConstraints(
+        TenantBoundaryAccessConstraints(), selected_filter_type="tenant_boundary"
+    )
 
 
 def build_v2_router(

@@ -30,10 +30,8 @@ class TenantBoundaryAccessConstraints:
 
     Implements ``domain.access.AccessConstraintProvider``.
 
-    One dimension only: tenancy. The classification tier is deliberately left
-    unrestricted, because mixing two mechanisms into one constraint would make
-    a failure ambiguous - a caller who got nothing back could not tell which
-    rule removed the content.
+    This supplies the tenant dimension. The protected composition helper supplies
+    classification, so the later application enforces both dimensions.
     """
 
     def constrain(self, authorization: AuthorizationContext) -> AccessConstraint:

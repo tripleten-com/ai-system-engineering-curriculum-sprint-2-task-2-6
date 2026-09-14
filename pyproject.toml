@@ -126,6 +126,7 @@ migration-checks = "pytest tests/contract/test_schema_migration.py -m runtime"
 # `up --build --wait`, and `ingest` is idempotent, so the corpus rows exist
 # before the column is added to them.
 migration = ["start", "ingest", "migration-checks"]
+authorization-checkpoint = "pytest tests/contract/test_authorization_checkpoint.py -m runtime"
 student-tests = "pytest tests/student"
 test = ["unit", "contract"]
 preflight = "python infra/scripts/preflight.py"
@@ -141,6 +142,7 @@ verify = [
   "start",
   "ready",
   "ingest",
+  "authorization-checkpoint",
   "smoke",
   "e2e",
   "answers",

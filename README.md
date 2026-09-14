@@ -1,5 +1,10 @@
 # Coldline Task 2.6 — Schema migration path
 
+This checkpoint includes the completed authorization composition: retrieval enforces both tenant
+and classification before dense and sparse candidates are fetched. `poe authorization-checkpoint`
+checks both exclusions and permitted retrieval against the running, ingested stack; `poe verify`
+rebuilds the stack and includes that check.
+
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/tripleten-com/ai-system-engineering-curriculum-sprint-2-task-2-6/tree/main)
 
 ## Start the system

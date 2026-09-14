@@ -69,6 +69,7 @@ SCHEMA_FILES = (
 # of these modules must be added here deliberately; a class that belongs behind
 # one of the five ports does not belong in domain at all.
 INTERNAL_COLLABORATORS = {
+    "src/api/access_policy.py": {"ComposedAccessConstraints"},
     "src/domain/repositories.py": {
         "DocumentRepository",
         "ExceptionRepository",
