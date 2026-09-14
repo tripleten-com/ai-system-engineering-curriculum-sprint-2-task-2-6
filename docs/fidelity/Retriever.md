@@ -41,7 +41,7 @@ about itself.
 |---|---|---|
 | Task 2.1 through Task 2.3 | `UnrestrictedAccessConstraints` | `false` — the context is carried and recorded but nothing is filtered, and a caller can retrieve another tenancy's chunk |
 | Task 2.4 starter | `UnrestrictedAccessConstraints`, now composed through `build_access_constraints` | `false` — this is the state the Task asks you to change |
-| Task 2.4 completed, and Task 2.5 onward | one bounded tenancy or classification constraint | `true` — the adapter derives this from the constraint it applied |
+| Task 2.4 completed, and Task 2.5 onward | one student dimension plus the supplied complement; both dimensions enforced | `true` — the adapter derives this from the constraint it applied |
 
 The Task 2.1 state is asserted by a runtime contract rather than left implicit, so enforcement
 cannot arrive early by accident and the Task 2.4 change is observable.
